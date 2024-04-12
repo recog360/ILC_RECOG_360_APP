@@ -1,113 +1,119 @@
 const video = document.getElementById('video');
-const canvas = document.getElementById('canvas');
-const captureBtn1 = document.getElementById('captureBtn1');
-const captureBtn2 = document.getElementById('captureBtn2');
-const fileInput = document.getElementById('fileInput');
-//const uploadBtn = document.getElementById('uploadBtn');
-const resultDiv = document.getElementById('result');
-const messageDiv = document.getElementById('message');
-
-let capturedDetails;
-let isFaceDetected = false;
-let descriptors = { desc1: null, desc2: null };
-const threshold = 0.4;
 
 Promise.all([
-    faceapi.nets.tinyFaceDetector.loadFromUri('/models'),
-    faceapi.nets.faceLandmark68Net.loadFromUri('/models'),
-    faceapi.nets.faceRecognitionNet.loadFromUri('/models'),
-    faceapi.nets.faceExpressionNet.loadFromUri('/models')
-]).then(startVideo);      
+    faceapi.nets.tinyFaceDetector.loadFromUri('models/tiny_face_detector_model-weights_manifest.json'),
+    faceapi.nets.faceLandmark68Net.loadFromUri('models/face_landmark_68_model-weights_manifest.json'),
+    faceapi.nets.faceRecognitionNet.loadFromUri('models/face_recognition_model-weights_manifest.json'),
+    faceapi.nets.faceExpressionNet.loadFromUri('models/face_expression_model-weights_manifest.json'),
+    faceapi.nets.ssdMobilenetv1.loadFromUri('models/ssd_mobilenetv1_model-weights_manifest.json')
+]).then(startVideo);
 
 async function startVideo() {
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: {} });
-        video.srcObject = stream;
+        const stream = await navigator.mediaDevices.getUserMedia({
+             video: {
+                facingMode: 'user'          //'environment' for back camera, 'user' for front camera
+             } });
+        document.getElementById('video').srcObject = stream;
     } catch (err) {
-        console.error(err);
+        console.error("Error accessing webcam", err);
+    }
+}
+// Toggle between front and back cameras
+async function toggleCamera() {
+    const videoElement = document.getElementById('video');
+    const stream = videoElement.srcObject;
+    if (!stream) return;
+
+    const tracks = stream.getTracks();
+    for (const track of tracks) {
+        track.stop();
+    }
+
+    const currentFacingMode = videoElement.srcObject.getVideoTracks()[0].getSettings().facingMode;
+    const newFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
+
+    try {
+        const newStream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                facingMode: newFacingMode
+            }
+        });
+
+        videoElement.srcObject = newStream;
+    } catch (error) {
+        console.error('Error toggling camera:', error);
     }
 }
 
+const flipCameraBtn = document.getElementById('flipCameraBtn');
+if (flipCameraBtn) {
+    flipCameraBtn.addEventListener('click', toggleCamera);
+}
 video.addEventListener('play', () => {
-    const displaySize = { width: video.width, height: video.height };
-    faceapi.matchDimensions(canvas, displaySize);
+    const displaySize = { width: document.getElementById('video').width, height: document.getElementById('video').height };
+    faceapi.matchDimensions(document.getElementById('canvas'), displaySize);
+    
     setInterval(async () => {
-        const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptors().withFaceExpressions();
+        const detections = await faceapi.detectAllFaces(document.getElementById('video'), new faceapi.SsdMobilenetv1Options()).withFaceLandmarks().withFaceDescriptors().withFaceExpressions();
         const resizedDetections = faceapi.resizeResults(detections, displaySize);
-        canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+        document.getElementById('canvas').getContext('2d').clearRect(0, 0, document.getElementById('canvas').width, document.getElementById('canvas').height);
 
-        faceapi.draw.drawDetections(canvas, resizedDetections);
-        //faceapi.draw.drawFaceLandmarks(canvas, resizedDetections);                               //To draw facial landmarks
+        faceapi.draw.drawDetections(document.getElementById('canvas'), resizedDetections);
+        //faceapi.draw.drawFaceLandmarks(document.getElementById('canvas'), resizedDetections);                               //To draw facial landmarks
         isFaceDetected = detections.length > 0;
-        if(!isFaceDetected){
+        if (!isFaceDetected) {
             showMessage("No Face Detected");
-        }
-        else{
-            hideMessage();
+        } else {
+          showMessage("Face Detected");
         }
     }, 100);
 });
 
-captureBtn1.addEventListener('click', () => {
-    captureImage1();
-});
-captureBtn2.addEventListener('click', () => {
-    captureImage2();
+
+document.getElementById('captureBtn1').addEventListener('click', () => {
+    captureImage(1);
 });
 
-function captureImage1() {
+document.getElementById('captureBtn2').addEventListener('click', () => {
+    captureImage(2);
+});
+
+let capturedDetails;
+let isFaceDetected = false;
+let descriptors = { desc1: null, desc2: null };
+const threshold = 0.6;
+
+function captureImage(imageNumber) {
     const captureCanvas = document.createElement('canvas');
-    captureCanvas.width = video.videoWidth;
-    captureCanvas.height = video.videoHeight;
+    captureCanvas.width = document.getElementById('video').videoWidth;
+    captureCanvas.height = document.getElementById('video').videoHeight;
     const ctx = captureCanvas.getContext('2d');
-    ctx.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
-    console.log("Image Resolution" + captureCanvas.width + "x" + captureCanvas.height);
-    faceapi.detectAllFaces(captureCanvas, new faceapi.TinyFaceDetectorOptions())
+    ctx.drawImage(document.getElementById('video'), 0, 0, captureCanvas.width, captureCanvas.height);
+
+    faceapi.detectAllFaces(captureCanvas, new faceapi.SsdMobilenetv1Options())
         .withFaceLandmarks()
         .withFaceDescriptors()
         .withFaceExpressions()
         .then(detections => {
-            if(detections.length > 1){
-                console.log(resultDiv.textContent = "Multiple faces detected in Image");
-            }
-            else if(detections.length === 1 && detections[0].landmarks){
-                console.log('Captured Image1 Details:', detections);
+            const defaultMsgElement = document.getElementById(`defaultMsg${imageNumber}`);
+            const resultElement = document.getElementById('result');
+
+            if (detections.length > 1) {
+                resultElement.textContent = `Multiple faces detected in Image ${imageNumber}`;
+            } else if (detections.length === 1 && detections[0].landmarks) {
+                console.log(`Captured Image${imageNumber} Details:`, detections);
                 capturedDetails = detections;
-                descriptors.desc1 = detections[0]?.descriptor; // Assuming there is only one face in the captured image
+                descriptors[`desc${imageNumber}`] = detections[0]?.descriptor; // Assuming there is only one face in the captured image
                 updateResult();
-            }
-            else{
-                console.log(resultDiv.textContent = "Not able to detect face in Image")
+                defaultMsgElement.innerHTML = '✅';
+            } else {
+                resultElement.textContent = `Not able to detect face in Image ${imageNumber}`;
+                // defaultMsgElement.style.display = "hidden";
             }
         });
 }
 
-function captureImage2() {
-    const captureCanvas = document.createElement('canvas');
-    captureCanvas.width = video.videoWidth;
-    captureCanvas.height = video.videoHeight;
-    const ctx = captureCanvas.getContext('2d');
-    ctx.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
-
-    faceapi.detectAllFaces(captureCanvas, new faceapi.TinyFaceDetectorOptions())
-        .withFaceLandmarks()
-        .withFaceDescriptors()
-        .withFaceExpressions()
-        .then(detections => {
-            if(detections.length > 1){
-                console.log(resultDiv.textContent = "Multiple face detected in Image");
-            }
-            else if(detections.length === 1 && detections[0].landmarks) {
-                console.log('Captured Image2 Details:', detections);
-                capturedDetails = detections;
-                descriptors.desc2 = detections[0]?.descriptor; // Assuming there is only one face in the captured image
-                updateResult();
-            }
-            else{
-                console.log(resultDiv.textContent = "No face detected in Image");
-            }
-        });
-}
 
 function updateResult() {
     if (descriptors.desc1 && descriptors.desc2) {
@@ -126,21 +132,21 @@ function updateResult() {
             matchResult = 'Images Match!';
         }
 
-        resultDiv.textContent = text;
-        resultDiv.style.backgroundColor = bgColor;
+        document.getElementById('result').textContent = text;
+        document.getElementById('result').style.backgroundColor = bgColor;
 
         // Display the result in the console
         console.log(matchResult);
     }
 }
 
-function showMessage(msg){
-    messageDiv.textContent = msg;
-    messageDiv.style.visibility = 'visible';
+function showMessage(msg) {
+    document.getElementById('message').textContent = msg;
+    document.getElementById('message').style.visibility = 'visible';
 }
 
-function hideMessage(){
-    messageDiv.style.visibility = 'hidden';
+function hideMessage() {
+    document.getElementById('message').style.visibility = 'hidden';
 }
 //Below code can be used for uploaded images
 
